@@ -1,0 +1,6 @@
+{
+  "name": "Hamed Vpns",
+  "description": "Android VPN and proxy client app supporting multiple proxy protocols, subscription management, and routing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
