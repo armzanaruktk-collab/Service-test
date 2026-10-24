@@ -1,0 +1,93 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Decode Release Keystore (Optional)
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          import os
+          import base64
+          raw_data = os.environ.get('SIGNING_KEY', '').strip()
+          if raw_data:
+              clean_data = "".join(raw_data.split())
+              with open("app/release-key.jks", "wb") as f:
+                  f.write(base64.b64decode(clean_data))
+              print("Successfully decoded release-key.jks")
+          else:
+              print("No SIGNING_KEY secret found; debug signing will be used")
+        shell: python
+
+      - name: Ensure libv2ray.aar Dependency
+        run: |
+          mkdir -p app/libs
+          if [ ! -f "app/libs/libv2ray.aar" ]; then
+            echo "Downloading libv2ray.aar..."
+            curl -L "https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.5/libv2ray.aar" -o app/libs/libv2ray.aar
+          fi
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x gradlew
+
+      - name: Build APK with Gradle
+        env:
+          RELEASE_STORE_FILE: "release-key.jks"
+          RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f "app/release-key.jks" ] && [ -n "${{ secrets.KEYSTORE_PASSWORD }}" ]; then
+            echo "Building Release APK..."
+            ./gradlew assembleRelease --stacktrace
+            mkdir -p build-output
+            cp app/build/outputs/apk/release/*.apk build-output/
+          else
+            echo "Building Debug APK..."
+            ./gradlew assembleDebug --stacktrace
+            mkdir -p build-output
+            cp app/build/outputs/apk/debug/app-debug.apk build-output/hamedvpns-debug.apk
+          fi
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HamedVpns-APK
+          path: build-output/*.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ github.ref_name || 'v1.0.0' }}
+          name: Hamed Vpns ${{ github.ref_name || 'v1.0.0' }}
+          draft: false
+          prerelease: false
+          files: build-output/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
